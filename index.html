@@ -165,6 +165,7 @@
   .badge.crash{ color:#FF8A7A; border-color:rgba(217,67,46,0.5); }
   .badge.feature{ color:#7FC7F7; border-color:rgba(62,143,196,0.5); }
   .badge.other{ color:var(--mist); }
+  .badge.announcement{ background:var(--grass-dim); color:#F3FFEA; border-color:var(--grass); font-weight:700; }
 
   .status-pill{
     font-size:11px; padding:4px 10px; font-family:'JetBrains Mono',monospace;
@@ -286,6 +287,7 @@
       <option value="bug">Bug</option>
       <option value="crash">Crash</option>
       <option value="feature">Feature request</option>
+      <option value="announcement">Announcement</option>
       <option value="other">Other</option>
     </select>
     <select id="fStatus">
@@ -298,6 +300,7 @@
       <option value="new">Newest</option>
       <option value="votes">Most voted</option>
       <option value="severity">Highest severity</option>
+      <option value="owner">Owner</option>
     </select>
     <span class="filter-count" id="filterCount"></span>
   </div>
@@ -311,6 +314,7 @@ const VOTED_KEY = 'agravitine-voted-ids';
 let issues = [];
 let votedIds = [];
 let selectedSeverity = 3;
+
 
 const PIN_CHECK_URL = 'https://agravitine-pin-check.tako-spiel.workers.dev/';
 const TOKEN_KEY = 'agravitine-owner-token';
@@ -327,7 +331,10 @@ async function loadOwnerState(){
   updateOwnerToggle();
 }
 
-
+// Asks the Worker whether the token we're holding is still valid. This is
+// the check that actually stops someone from just setting `isOwner = true`
+// in the console — without a real token (which only the Worker can issue
+// and verify), this always comes back false.
 async function verifyOwnerToken(){
   if(!ownerToken) return false;
   try{
@@ -350,6 +357,7 @@ function updateOwnerToggle(){
     btn.classList.toggle('on', isOwner);
   }
   renderOwnerModPanel();
+  renderCategoryOptions();
 }
 
 async function toggleOwnerMode(){
@@ -426,6 +434,22 @@ function showFlash(type, msg){
   setTimeout(()=>{ f.className = 'flash'; }, 6000);
 }
 
+// --- Category options (Announcement is owner-only to create, but anyone
+// can still filter by it — see the filter dropdown, which always has it) ---
+function renderCategoryOptions(){
+  const sel = document.getElementById('fCategory');
+  if(!sel) return;
+  const current = sel.value;
+  sel.innerHTML = `
+    <option value="bug">Bug</option>
+    <option value="crash">Crash</option>
+    <option value="feature">Feature request</option>
+    <option value="other">Other</option>
+    ${isOwner ? '<option value="announcement">Announcement 📢</option>' : ''}
+  `;
+  if([...sel.options].some(o=>o.value===current)) sel.value = current;
+}
+
 // --- Severity picker ---
 function selectSeverity(v){
   selectedSeverity = v;
@@ -449,8 +473,11 @@ async function loadMods(){
   }catch(e){ mods = []; }
   if(mods.length === 0){
     mods = ['Agravitine'];
-    await saveMods();
   }
+  if(!mods.some(m => m.toLowerCase() === 'general')){
+    mods.push('General');
+  }
+  await saveMods();
   renderModSelects();
 }
 
@@ -499,7 +526,7 @@ function renderOwnerModPanel(){
         <button class="primary" style="background:var(--water-dim)" onclick="addMod()">Add mod</button>
       </div>
       <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:16px;">
-        ${mods.map(m=>`<span class="mod-chip" data-mod="${esc(m)}">${esc(m)}<button class="remove-mod-btn" data-mod="${esc(m)}">×</button></span>`).join('')}
+        ${mods.map(m=>`<span class="mod-chip" data-mod="${esc(m)}">${esc(m)}${m.toLowerCase()!=='general' ? `<button class="remove-mod-btn" data-mod="${esc(m)}">×</button>` : ''}</span>`).join('')}
       </div>
     </div>
   `;
@@ -529,6 +556,10 @@ async function addMod(){
 }
 
 async function removeMod(name){
+  if(name.toLowerCase() === 'general'){
+    showFlash('err', '"General" is a built-in mod option and can\'t be removed.');
+    return;
+  }
   if(!(await verifyOwnerToken())){
     isOwner = false; ownerToken = null; updateOwnerToggle();
     showFlash('err', 'Owner session not valid — unlock owner tools again.');
@@ -639,6 +670,7 @@ function render(){
   if(sort === 'new') list.sort((a,b)=> new Date(b.createdAt)-new Date(a.createdAt));
   if(sort === 'votes') list.sort((a,b)=> b.votes - a.votes);
   if(sort === 'severity') list.sort((a,b)=> b.severity - a.severity);
+  if(sort === 'owner') list.sort((a,b)=> (b.byOwner?1:0) - (a.byOwner?1:0) || new Date(b.createdAt)-new Date(a.createdAt));
 
   document.getElementById('filterCount').textContent = `${list.length} shown`;
 
@@ -733,11 +765,16 @@ document.getElementById('submitBtn').addEventListener('click', async ()=>{
     showFlash('err', 'Give the mod list a moment to load, then try again.');
     return;
   }
+  if(category === 'announcement' && !isOwner){
+    showFlash('err', 'Only owner mode can post announcements.');
+    return;
+  }
 
   btn.disabled = true;
   btn.textContent = 'Screening report...';
 
-  const result = await moderate(title, description);
+  const skipModeration = (category === 'announcement' && isOwner);
+  const result = skipModeration ? { allowed: true, reason: '' } : await moderate(title, description);
 
   btn.disabled = false;
   btn.textContent = 'Submit report';
@@ -753,7 +790,8 @@ document.getElementById('submitBtn').addEventListener('click', async ()=>{
     severity: selectedSeverity,
     status: 'open',
     createdAt: new Date().toISOString(),
-    votes: 0
+    votes: 0,
+    byOwner: isOwner
   });
   await saveIssues();
 
@@ -769,6 +807,7 @@ document.getElementById('submitBtn').addEventListener('click', async ()=>{
 });
 
 loadOwnerState();
+renderCategoryOptions();
 loadMods();
 loadIssues();
 </script>
