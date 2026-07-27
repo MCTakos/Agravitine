@@ -312,11 +312,7 @@ let issues = [];
 let votedIds = [];
 let selectedSeverity = 3;
 
-// OWNER_PIN is never stored here anymore. Checking it happens on a tiny
-// Cloudflare Worker (see worker.js) so the real PIN never reaches the
-// browser at all — only a signed session token does.
-// Set this to your deployed Worker's URL after running `wrangler deploy`.
-const PIN_CHECK_URL = 'https://agravitine-pin-check.YOUR-SUBDOMAIN.workers.dev';
+const PIN_CHECK_URL = 'https://agravitine-pin-check.tako-spiel.workers.dev/';
 const TOKEN_KEY = 'agravitine-owner-token';
 let isOwner = false;
 let ownerToken = null;
@@ -331,10 +327,7 @@ async function loadOwnerState(){
   updateOwnerToggle();
 }
 
-// Asks the Worker whether the token we're holding is still valid. This is
-// the check that actually stops someone from just setting `isOwner = true`
-// in the console — without a real token (which only the Worker can issue
-// and verify), this always comes back false.
+
 async function verifyOwnerToken(){
   if(!ownerToken) return false;
   try{
